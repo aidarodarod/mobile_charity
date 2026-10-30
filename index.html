@@ -14,6 +14,7 @@
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.team-track{will-change:auto}}
 html{scroll-behavior:auto}.team-track[data-count="4"] .person{width:120px}.external-icon{mask:url('data:image/svg+xml;base64,PHN2ZyBwcmVzZXJ2ZUFzcGVjdFJhdGlvPSJub25lIiBvdmVyZmxvdz0idmlzaWJsZSIgc3R5bGU9ImRpc3BsYXk6IGJsb2NrOyIgd2lkdGg9IjE1LjMzMzMiIGhlaWdodD0iMTYuMzMzMyIgdmlld0JveD0iMCAwIDE1LjMzMzMgMTYuMzMzMyIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGcgaWQ9ImNsaXAwXzIyNTFfMTI2NjRfMSI+CjxwYXRoIGlkPSJWZWN0b3IiIGQ9Ik0xNS4zMzMzIDE2LjMzMzNWMEgwVjE2LjMzMzNIMTUuMzMzM1oiIGZpbGw9ImJsYWNrIi8+CjwvZz4KPC9zdmc+Cg==') 0 0/15.3333px 16.3333px no-repeat}
 .photo-gift>img{width:153.4%;height:163.21%;left:-26.7%;top:-24.82%;right:auto;bottom:auto}.photo-event>img{width:131.68%;height:139.98%;left:-16.91%;top:-27.77%;right:auto;bottom:auto}.photo-volunteers>img{width:116.75%;height:124.12%;left:-6.01%;top:-12.59%;right:auto;bottom:auto}
+.charity-row.loop-reset{scroll-snap-type:none;scroll-behavior:auto}
 </style>
   
 </head>
@@ -89,26 +90,90 @@ const card={
   mayak:{type:'logo',file:'imgGroup.svg',name:'Дом с маяком',w:106.32,h:125.25}
 };
 const charityRows=[['boxes','rus','child','khab','gift','starost'],['noch','balloons','world','children','alesha','event'],['cats','anton','street','podari','volunteers','mayak']];
-document.querySelector('#charity-gallery').innerHTML=charityRows.map((row,i)=>`<div class="charity-row" role="region" aria-roledescription="карусель" aria-label="Благотворительность, ряд ${i+1}. Листайте влево и вправо" tabindex="0" data-row="${i}"><div class="charity-track">${row.map((key,j)=>{const c=card[key];const img=image(c.file,c.name,c.w,c.h);return `<div class="charity-card ${c.type}" role="group" aria-roledescription="слайд" aria-label="${j+1} из ${row.length}">${key==='podari'?`<div class="logo-crop">${img}</div>`:img}</div>`;}).join('')}</div></div>`).join('');
+const loopCopies=7,loopMiddle=Math.floor(loopCopies/2);
+document.querySelector('#charity-gallery').innerHTML=charityRows.map((row,i)=>`<div class="charity-row" role="region" aria-roledescription="карусель" aria-label="Благотворительность, ряд ${i+1}. Листайте влево и вправо без конца" tabindex="0" data-row="${i}" data-count="${row.length}"><div class="charity-track">${Array.from({length:loopCopies},(_,copy)=>row.map((key,j)=>{const c=card[key];const img=image(c.file,copy===loopMiddle?c.name:'',c.w,c.h);return `<div class="charity-card ${c.type}" role="group" aria-roledescription="слайд" aria-label="${j+1} из ${row.length}"${copy!==loopMiddle?' aria-hidden="true"':''}>${key==='podari'?`<div class="logo-crop">${img}</div>`:img}</div>`;}).join('')).join('')}</div></div>`).join('');
 const media=[['imgImage29.png','Forbes',122],['imgImage30.png','Россия 24',139],['imgImage31.png','РБК',117],['imgImage32.png','Фонтанка',136]];
 document.querySelector('#media-list').innerHTML=media.map(([file,name,w])=>`<a class="media-link" href="https://fpa.ru/news/smi/" target="_blank" rel="noopener noreferrer" aria-label="${name} — публикации о ФПА">${image(file,name,w,32)}<span class="external-icon" aria-hidden="true">${image('imgGroup2.svg','',14.59,14.59)}</span></a>`).join('');
 
-// Each row owns its native scroll position: touch momentum and vertical page scrolling remain native.
+// Native touch scrolling stays independent per row. Identical copies hide the seam.
 const sliders=[...document.querySelectorAll('.charity-row')];
-let initialized=false;
+const sliderState=new WeakMap(sliders.map(row=>[row,{step:0,index:2,count:Number(row.dataset.count),drag:null,touching:false,timer:0,resetFrame:0}]));
+const wrap=(value,period)=>((value%period)+period)%period;
+function jumpSlider(row,left){
+  const state=sliderState.get(row);
+  cancelAnimationFrame(state.resetFrame);
+  row.classList.add('loop-reset');
+  row.scrollTo({left,behavior:'instant'});
+  state.resetFrame=requestAnimationFrame(()=>row.classList.remove('loop-reset'));
+}
+function normalizeSlider(row,force=false){
+  const state=sliderState.get(row);
+  if(!state.step||(!force&&(state.drag||state.touching)))return;
+  const cycle=state.count*state.step;
+  const left=loopMiddle*cycle+wrap(row.scrollLeft,cycle);
+  const delta=left-row.scrollLeft;
+  if(Math.abs(delta)>.5){
+    if(state.drag)state.drag.left+=delta;
+    jumpSlider(row,left);
+  }
+}
+function settleSlider(row){
+  const state=sliderState.get(row);
+  clearTimeout(state.timer);
+  if(!state.drag&&!state.touching)state.timer=setTimeout(()=>normalizeSlider(row),160);
+}
 function sizeSliders(){
-  sliders.forEach(row=>{const width=row.querySelector('.charity-card').getBoundingClientRect().width;const edge=(row.clientWidth-width)/2;row.style.setProperty('--edge',`${edge}px`);if(!initialized)row.scrollLeft=2*(width+6);});
-  initialized=true;
+  sliders.forEach(row=>{
+    const state=sliderState.get(row);
+    const index=state.index;
+    const width=row.querySelector('.charity-card').getBoundingClientRect().width;
+    state.step=width+6;
+    row.style.setProperty('--edge',`${(row.clientWidth-width)/2}px`);
+    jumpSlider(row,(loopMiddle*state.count+index)*state.step);
+  });
 }
 sizeSliders();new ResizeObserver(sizeSliders).observe(document.querySelector('.charity-panel'));
 sliders.forEach(row=>{
-  let drag=null;
-  const step=()=>row.querySelector('.charity-card').getBoundingClientRect().width+6;
-  row.addEventListener('keydown',e=>{if(e.ctrlKey||e.metaKey||e.altKey)return;if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();row.scrollBy({left:step()*(e.key==='ArrowRight'?1:-1),behavior:reducedMotion.matches?'instant':'smooth'});}if(e.key==='Home'||e.key==='End'){e.preventDefault();row.scrollTo({left:e.key==='Home'?0:row.scrollWidth,behavior:reducedMotion.matches?'instant':'smooth'});}});
-  row.addEventListener('pointerdown',e=>{if(e.pointerType!=='mouse'||e.button!==0)return;e.preventDefault();drag={x:e.clientX,left:row.scrollLeft};row.classList.add('dragging');row.setPointerCapture(e.pointerId);});
-  row.addEventListener('pointermove',e=>{if(drag)row.scrollLeft=drag.left+drag.x-e.clientX;});
-  const end=()=>{if(!drag)return;drag=null;const index=Math.round(row.scrollLeft/step());row.classList.remove('dragging');row.scrollTo({left:index*step(),behavior:reducedMotion.matches?'instant':'smooth'});};
+  const state=sliderState.get(row);
+  row.addEventListener('keydown',e=>{
+    if(e.ctrlKey||e.metaKey||e.altKey||!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
+    e.preventDefault();normalizeSlider(row);
+    let index=Math.round(row.scrollLeft/state.step);
+    if(e.key==='Home'||e.key==='End')index=loopMiddle*state.count+(e.key==='End'?state.count-1:0);
+    else index+=e.key==='ArrowRight'?1:-1;
+    row.scrollTo({left:index*state.step,behavior:reducedMotion.matches?'instant':'smooth'});
+    settleSlider(row);
+  });
+  row.addEventListener('scroll',()=>{
+    // A browser may re-snap during resize before ResizeObserver runs.
+    if(Math.abs(row.querySelector('.charity-card').getBoundingClientRect().width+6-state.step)<.5)
+      state.index=wrap(Math.round(row.scrollLeft/state.step),state.count);
+    // Only an exceptionally long gesture can reach the outer buffer.
+    if(row.scrollLeft<state.step*2||row.scrollLeft>row.scrollWidth-row.clientWidth-state.step*2)normalizeSlider(row,true);
+    settleSlider(row);
+  },{passive:true});
+  row.addEventListener('scrollend',()=>normalizeSlider(row));
+  row.addEventListener('touchstart',()=>{state.touching=true;clearTimeout(state.timer);},{passive:true});
+  const touchEnd=()=>{state.touching=false;settleSlider(row);};
+  row.addEventListener('touchend',touchEnd,{passive:true});
+  row.addEventListener('touchcancel',touchEnd,{passive:true});
+  row.addEventListener('pointerdown',e=>{
+    if(e.pointerType!=='mouse'||e.button!==0)return;
+    e.preventDefault();normalizeSlider(row);clearTimeout(state.timer);
+    state.drag={x:e.clientX,left:row.scrollLeft};
+    row.classList.add('dragging');row.setPointerCapture(e.pointerId);
+  });
+  row.addEventListener('pointermove',e=>{if(state.drag)row.scrollLeft=state.drag.left+state.drag.x-e.clientX;});
+  const end=()=>{
+    if(!state.drag)return;
+    state.drag=null;normalizeSlider(row);
+    const index=Math.round(row.scrollLeft/state.step);
+    row.classList.remove('dragging');
+    row.scrollTo({left:index*state.step,behavior:reducedMotion.matches?'instant':'smooth'});
+    settleSlider(row);
+  };
   row.addEventListener('pointerup',end);row.addEventListener('pointercancel',end);
+  row.addEventListener('lostpointercapture',end);
 });
 
 const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)');
@@ -166,7 +231,7 @@ document.addEventListener('visibilitychange',()=>{
 });
 measureTeam();updateTeamTarget();teamPosition=teamTarget;paintTeam();
 // Expose a small, read-only QA snapshot for local verification.
-window.demoState=()=>({rows:sliders.map(r=>({position:Math.round(r.scrollLeft),cards:r.querySelectorAll('.charity-card').length})),teamTransforms:tracks.map(t=>t.style.transform),images:[...document.images].filter(i=>!i.complete||i.naturalWidth===0).map(i=>i.getAttribute('src'))});
+window.demoState=()=>({rows:sliders.map(r=>({position:Math.round(r.scrollLeft),cards:Number(r.dataset.count)})),teamTransforms:tracks.map(t=>t.style.transform),images:[...document.images].filter(i=>!i.complete||i.naturalWidth===0).map(i=>i.getAttribute('src'))});
 </script>
 </body>
 </html>
