@@ -113,15 +113,57 @@ sliders.forEach(row=>{
 
 const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)');
 const tracks=[...document.querySelectorAll('.team-track')];
-let raf=0;
-function renderTeam(){
-  raf=0;
-  const top=document.querySelector('#team').getBoundingClientRect().top;
-  const displacement=reducedMotion.matches?0:Math.max(-180,Math.min(180,-top*.23));
-  tracks.forEach((track,i)=>{const count=Number(track.dataset.count);const children=[...track.children];const cycle=children[count].offsetLeft-children[0].offsetLeft;const stagger=i%2?-61:0;const x=-cycle+stagger+displacement*(i%2?1:-1);track.style.transform=`translate3d(${x}px,0,0)`;});
+const teamSection=document.querySelector('#team');
+const teamEaseMs=170;
+let raf=0,lastFrameTime=0,teamTop=0,teamMetrics=[],metricsDirty=true;
+let teamPosition=0,teamTarget=0;
+
+// Measure only when the layout changes; animation frames only write transforms.
+function measureTeam(){
+  teamTop=teamSection.getBoundingClientRect().top+scrollY;
+  teamMetrics=tracks.map((track,i)=>{
+    const count=Number(track.dataset.count);
+    return {base:-(track.children[count].offsetLeft-track.children[0].offsetLeft)+(i%2?-61:0),direction:i%2?1:-1};
+  });
+  metricsDirty=false;
 }
-function requestTeam(){if(!raf)raf=requestAnimationFrame(renderTeam);}
-addEventListener('scroll',requestTeam,{passive:true});addEventListener('resize',requestTeam,{passive:true});reducedMotion.addEventListener('change',requestTeam);renderTeam();
+function updateTeamTarget(){
+  teamTarget=reducedMotion.matches?0:Math.max(-180,Math.min(180,(scrollY-teamTop)*.23));
+}
+function paintTeam(){
+  tracks.forEach((track,i)=>{
+    const {base,direction}=teamMetrics[i];
+    track.style.transform=`translate3d(${(base+teamPosition*direction).toFixed(3)}px,0,0)`;
+  });
+}
+function renderTeam(time){
+  raf=0;
+  if(metricsDirty)measureTeam();
+  updateTeamTarget();
+  // Exponential easing feels the same on 60 Hz and 120 Hz screens.
+  const elapsed=lastFrameTime?Math.min(64,time-lastFrameTime):1000/60;
+  lastFrameTime=time;
+  teamPosition=reducedMotion.matches?0:teamPosition+(teamTarget-teamPosition)*(1-Math.exp(-elapsed/teamEaseMs));
+  const settled=Math.abs(teamTarget-teamPosition)<.02;
+  if(settled)teamPosition=teamTarget;
+  paintTeam();
+  if(!settled&&!document.hidden)raf=requestAnimationFrame(renderTeam);
+  else lastFrameTime=0;
+}
+function requestTeam(){
+  if(!raf&&!document.hidden)raf=requestAnimationFrame(renderTeam);
+}
+function refreshTeam(){metricsDirty=true;requestTeam();}
+addEventListener('scroll',requestTeam,{passive:true});
+addEventListener('resize',refreshTeam,{passive:true});
+reducedMotion.addEventListener('change',requestTeam);
+new ResizeObserver(refreshTeam).observe(teamSection);
+document.fonts.ready.then(refreshTeam);
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden){cancelAnimationFrame(raf);raf=0;lastFrameTime=0;}
+  else refreshTeam();
+});
+measureTeam();updateTeamTarget();teamPosition=teamTarget;paintTeam();
 // Expose a small, read-only QA snapshot for local verification.
 window.demoState=()=>({rows:sliders.map(r=>({position:Math.round(r.scrollLeft),cards:r.querySelectorAll('.charity-card').length})),teamTransforms:tracks.map(t=>t.style.transform),images:[...document.images].filter(i=>!i.complete||i.naturalWidth===0).map(i=>i.getAttribute('src'))});
 </script>
