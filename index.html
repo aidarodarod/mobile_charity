@@ -114,7 +114,8 @@ sliders.forEach(row=>{
 const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)');
 const tracks=[...document.querySelectorAll('.team-track')];
 const teamSection=document.querySelector('#team');
-const teamEaseMs=170;
+const teamEaseMs=340;
+const teamScrollRatio=.115;
 let raf=0,lastFrameTime=0,teamTop=0,teamMetrics=[],metricsDirty=true;
 let teamPosition=0,teamTarget=0;
 
@@ -128,7 +129,7 @@ function measureTeam(){
   metricsDirty=false;
 }
 function updateTeamTarget(){
-  teamTarget=reducedMotion.matches?0:Math.max(-180,Math.min(180,(scrollY-teamTop)*.23));
+  teamTarget=reducedMotion.matches?0:Math.max(-180,Math.min(180,(scrollY-teamTop)*teamScrollRatio));
 }
 function paintTeam(){
   tracks.forEach((track,i)=>{
